@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Text, View, TextInput, Button, FlatList, Alert } from "react-native";
+import { Text, View, TextInput, Button, FlatList, Alert, TouchableOpacity, StyleSheet } from "react-native";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, getDocs } from "firebase/firestore";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import FontAwesome from 'react-native-vector-icons/FontAwesome';
+
 
 interface Contact {
-  id?: string; // Para armazenar o ID do documento do Firestore
+  id?: string;
   nome: string;
   email: string;
   telefone: string;
@@ -20,7 +22,6 @@ const firebaseConfig = {
   appId: "1:969290275668:web:1479a9081fde79e15f46c1",
 };
 
-// Inicializa o Firebase e Firestore
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
@@ -29,6 +30,7 @@ export default function Index() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Função para carregar contatos do Firestore
   const fetchContacts = async () => {
@@ -44,12 +46,11 @@ export default function Index() {
     }
   };
 
-  // Carregar contatos ao montar o componente
   useEffect(() => {
     fetchContacts();
   }, []);
 
-  // Função para cadastrar novo contato
+  // Função para cadastrar ou atualizar contato
   const handleSubmit = async () => {
     if (!nome || !email || !telefone) {
       Alert.alert("Erro", "Por favor, preencha todos os campos!");
@@ -59,17 +60,28 @@ export default function Index() {
     const newContact: Contact = { nome, email, telefone };
 
     try {
-      // Salva o novo contato no Firestore
-      const docRef = await addDoc(collection(db, "contacts"), newContact);
-      console.log("Contato salvo no Firestore!");
+      if (editingId) {
+        // Atualizar contato
+        const contactDoc = doc(db, "contacts", editingId);
+        await updateDoc(contactDoc, newContact);
+        setContacts((prev) =>
+          prev.map((contact) =>
+            contact.id === editingId ? { ...newContact, id: editingId } : contact
+          )
+        );
+        setEditingId(null);
+        Alert.alert("Sucesso", "Contato atualizado!");
+      } else {
+        // Adicionar novo contato
+        const docRef = await addDoc(collection(db, "contacts"), newContact);
+        setContacts((prevContacts) => [
+          ...prevContacts,
+          { ...newContact, id: docRef.id },
+        ]);
+        Alert.alert("Sucesso", "Contato cadastrado!");
+      }
 
-      // Atualiza a lista de contatos localmente
-      setContacts((prevContacts) => [
-        ...prevContacts,
-        { ...newContact, id: docRef.id },
-      ]);
-
-      // Limpa os campos do formulário
+      // Limpar os campos
       setNome("");
       setEmail("");
       setTelefone("");
@@ -79,43 +91,120 @@ export default function Index() {
     }
   };
 
+  // Função para deletar contato
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "contacts", id));
+      setContacts((prev) => prev.filter((contact) => contact.id !== id));
+      Alert.alert("Sucesso", "Contato deletado!");
+    } catch (error) {
+      console.error("Erro ao deletar contato:", error);
+      Alert.alert("Erro", "Não foi possível deletar o contato.");
+    }
+  };
+
+  // Função para editar contato
+  const handleEdit = (contact: Contact) => {
+    setNome(contact.nome);
+    setEmail(contact.email);
+    setTelefone(contact.telefone);
+    setEditingId(contact.id || null);
+  };
+
   return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 20 }}>
-      <Text style={{ fontSize: 20, marginBottom: 20 }}>Formulário de Contato</Text>
+    <View style={styles.container}>
+      <Text style={styles.headerText}>
+        {editingId ? "Editar Contato" : "Formulário de Contato"}
+      </Text>
 
       <TextInput
-        style={{ borderWidth: 1, padding: 10, marginBottom: 10, width: "100%" }}
+        style={styles.input}
         value={nome}
         onChangeText={setNome}
         placeholder="Digite seu nome"
       />
       <TextInput
-        style={{ borderWidth: 1, padding: 10, marginBottom: 10, width: "100%" }}
+        style={styles.input}
         value={email}
         onChangeText={setEmail}
         placeholder="Digite seu email"
         keyboardType="email-address"
       />
       <TextInput
-        style={{ borderWidth: 1, padding: 10, marginBottom: 20, width: "100%" }}
+        style={styles.input}
         value={telefone}
         onChangeText={setTelefone}
         placeholder="(00) 00000-0000"
         keyboardType="phone-pad"
       />
 
-      <Button title="Cadastrar" onPress={handleSubmit} />
+      <Button title={editingId ? "Atualizar" : "Cadastrar"} onPress={handleSubmit} />
 
-      <Text style={{ fontSize: 18, marginTop: 30 }}>Lista de Contatos:</Text>
+      <Text style={styles.listHeader}>Lista de Contatos:</Text>
       <FlatList
         data={contacts}
         keyExtractor={(item) => item.id ?? ""}
         renderItem={({ item }) => (
-          <View style={{ flexDirection: "row", padding: 5 }}>
-            <Text>{item.nome} - {item.email} - {item.telefone}</Text>
+          <View style={styles.contactItem}>
+            <Text style={styles.contactText}>{item.nome} - {item.email} - {item.telefone}</Text>
+            <TouchableOpacity onPress={() => handleEdit(item)} >
+              <FontAwesome name="pencil" size={15} color="black" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleDelete(item.id!)}>
+              <FontAwesome name="trash" size={15} color="black"/>
+            </TouchableOpacity>
           </View>
         )}
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#f5f5f5",
+  },
+  headerText: {
+    fontSize: 30,
+    marginBottom: 20,
+    color: "#00317c",
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    padding: 10,
+    marginBottom: 10,
+    width: "100%",
+    borderRadius: 5,
+    backgroundColor: "#fff",
+  },
+  listHeader: {
+    fontSize: 18,
+    marginTop: 30,
+    color: "#00317c",
+  },
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
+    marginRight: 10,
+  },
+  contactText: {
+    flex: 1,
+    marginRight:10,
+  },
+  editButton: {
+    marginRight: 50 ,
+    //marginLeft: 50,
+  },
+  deleteButton: {
+    marginLeft: 50,
+  //  marginRight: 50,
+  },
+});
